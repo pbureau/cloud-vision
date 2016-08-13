@@ -54,9 +54,12 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+/* Retrofit */
 
 public class MainActivity extends AppCompatActivity {
-    private static final String CLOUD_VISION_API_KEY = "YOUR_API_KEY";
+    //private static final String CLOUD_VISION_API_KEY = "AIzaSyB7i_nuVzjT33HyDY0BuwhWQ6RW3SRuagk";
+    private static final String CLOUD_VISION_API_KEY = "AIzaSyDqC077kQ5LpzMhim-su0Ov-9rRoKkN-kY";
     public static final String FILE_NAME = "temp.jpg";
 
     private static final String TAG = MainActivity.class.getSimpleName();
@@ -99,6 +102,10 @@ public class MainActivity extends AppCompatActivity {
 
         mImageDetails = (TextView) findViewById(R.id.image_details);
         mMainImage = (ImageView) findViewById(R.id.main_image);
+
+        /* Camfind API init */
+        final String BASE_URL = "http://api.cloudsightapi.com/";
+        Retrofit retrofit = new Retrofit.Builder().baseUrl(BASE_URL).addConverterFactory(GsonConverterFactory.create()).build();
     }
 
     public void startGalleryChooser() {
@@ -172,73 +179,73 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void callCloudVision(final Bitmap bitmap) throws IOException {
-        // Switch text to loading
-        mImageDetails.setText(R.string.loading_message);
+      // Switch text to loading
+      mImageDetails.setText(R.string.loading_message);
 
-        // Do the real work in an async task, because we need to use the network anyway
-        new AsyncTask<Object, Void, String>() {
-            @Override
-            protected String doInBackground(Object... params) {
-                try {
-                    HttpTransport httpTransport = AndroidHttp.newCompatibleTransport();
-                    JsonFactory jsonFactory = GsonFactory.getDefaultInstance();
+      // Do the real work in an async task, because we need to use the network anyway
+      new AsyncTask<Object, Void, String>() {
+        @Override
+        protected String doInBackground(Object... params) {
+          try {
+            HttpTransport httpTransport = AndroidHttp.newCompatibleTransport();
+            JsonFactory jsonFactory     = GsonFactory.getDefaultInstance();
 
-                    Vision.Builder builder = new Vision.Builder(httpTransport, jsonFactory, null);
-                    builder.setVisionRequestInitializer(new
-                            VisionRequestInitializer(CLOUD_VISION_API_KEY));
-                    Vision vision = builder.build();
+            Vision.Builder builder = new Vision.Builder(httpTransport, jsonFactory, null);
+            builder.setVisionRequestInitializer(new VisionRequestInitializer(CLOUD_VISION_API_KEY));
+            builder.setApplicationName(getResources().getString(R.string.app_name));
+            Vision vision = builder.build();
 
-                    BatchAnnotateImagesRequest batchAnnotateImagesRequest =
-                            new BatchAnnotateImagesRequest();
-                    batchAnnotateImagesRequest.setRequests(new ArrayList<AnnotateImageRequest>() {{
-                        AnnotateImageRequest annotateImageRequest = new AnnotateImageRequest();
+            List<Feature> featureList = new ArrayList<>();
+            Feature labelDetection = new Feature();
+            labelDetection.setType("LABEL_DETECTION");
+            labelDetection.setMaxResults(10);
+            featureList.add(labelDetection);
 
-                        // Add the image
-                        Image base64EncodedImage = new Image();
-                        // Convert the bitmap to a JPEG
-                        // Just in case it's a format that Android understands but Cloud Vision
-                        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream);
-                        byte[] imageBytes = byteArrayOutputStream.toByteArray();
+            Feature textDetection = new Feature();
+            textDetection.setType("TEXT_DETECTION");
+            textDetection.setMaxResults(10);
+            featureList.add(textDetection);
 
-                        // Base64 encode the JPEG
-                        base64EncodedImage.encodeContent(imageBytes);
-                        annotateImageRequest.setImage(base64EncodedImage);
+            Feature landmarkDetection = new Feature();
+            landmarkDetection.setType("LOGO_DETECTION");
+            landmarkDetection.setMaxResults(10);
+            featureList.add(landmarkDetection);
 
-                        // add the features we want
-                        annotateImageRequest.setFeatures(new ArrayList<Feature>() {{
-                            Feature labelDetection = new Feature();
-                            labelDetection.setType("LABEL_DETECTION");
-                            labelDetection.setMaxResults(10);
-                            add(labelDetection);
-                        }});
+            List<AnnotateImageRequest> imageList      = new ArrayList<>();
+            AnnotateImageRequest annotateImageRequest = new AnnotateImageRequest();
+            Image base64EncodedImage                  = getBase64EncodedJpeg(bitmap);
 
-                        // Add the list of one thing to the request
-                        add(annotateImageRequest);
-                    }});
+            annotateImageRequest.setImage(base64EncodedImage);
+            annotateImageRequest.setFeatures(featureList);
+            imageList.add(annotateImageRequest);
 
-                    Vision.Images.Annotate annotateRequest =
-                            vision.images().annotate(batchAnnotateImagesRequest);
-                    // Due to a bug: requests to Vision API containing large images fail when GZipped.
-                    annotateRequest.setDisableGZipContent(true);
-                    Log.d(TAG, "created Cloud Vision request object, sending request");
+            BatchAnnotateImagesRequest batchAnnotateImagesRequest = new BatchAnnotateImagesRequest();
+            batchAnnotateImagesRequest.setRequests(imageList); 
 
-                    BatchAnnotateImagesResponse response = annotateRequest.execute();
-                    return convertResponseToString(response);
+            Vision.Images.Annotate annotateRequest = vision.images().annotate(batchAnnotateImagesRequest);
+            // Due to a bug: requests to Vision API containing large images fail when GZipped.
+            annotateRequest.setDisableGZipContent(true);
+            Log.d(TAG, "created Cloud Vision request object, sending request");
 
-                } catch (GoogleJsonResponseException e) {
-                    Log.d(TAG, "failed to make API request because " + e.getContent());
-                } catch (IOException e) {
-                    Log.d(TAG, "failed to make API request because of other IOException " +
-                            e.getMessage());
-                }
-                return "Cloud Vision API request failed. Check logs for details.";
-            }
+            BatchAnnotateImagesResponse response = annotateRequest.execute();
+            return convertResponseToString(response);
+          } 
+          catch (GoogleJsonResponseException e) 
+          {
+            Log.d(TAG, "failed to make API request because " + e.getContent());
+          } 
+          catch (IOException e) 
+          {
+            Log.d(TAG, "failed to make API request because of other IOException " +
+                e.getMessage());
+          }
+          return "Cloud Vision API request failed. Check logs for details.";
+        }
 
-            protected void onPostExecute(String result) {
-                mImageDetails.setText(result);
-            }
-        }.execute();
+        protected void onPostExecute(String result) {
+          mImageDetails.setText(result);
+        }
+      }.execute();
     }
 
     public Bitmap scaleBitmapDown(Bitmap bitmap, int maxDimension) {
@@ -261,19 +268,56 @@ public class MainActivity extends AppCompatActivity {
         return Bitmap.createScaledBitmap(bitmap, resizedWidth, resizedHeight, false);
     }
 
-    private String convertResponseToString(BatchAnnotateImagesResponse response) {
-        String message = "I found these things:\n\n";
+    public Image getBase64EncodedJpeg(Bitmap bitmap) {
+      Image image = new Image();
+      ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+      bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream);
+      byte[] imageBytes = byteArrayOutputStream.toByteArray();
+      image.encodeContent(imageBytes);
+      return image;
+    }
 
-        List<EntityAnnotation> labels = response.getResponses().get(0).getLabelAnnotations();
-        if (labels != null) {
-            for (EntityAnnotation label : labels) {
-                message += String.format("%.3f: %s", label.getScore(), label.getDescription());
-                message += "\n";
-            }
-        } else {
-            message += "nothing";
+    private String convertResponseToString(BatchAnnotateImagesResponse response) 
+    {
+      StringBuilder message = new StringBuilder("Results:\n\n");
+
+      message.append("Labels:\n");
+
+      List<EntityAnnotation> labels = response.getResponses().get(0).getLabelAnnotations();
+      if (labels != null) {
+        for (EntityAnnotation label : labels) {
+          message.append(String.format(Locale.getDefault(), "%.3f: %s",
+                label.getScore(), label.getDescription()));
+          message.append("\n");
         }
+      } else {
+        message.append("nothing\n");
+      }
 
-        return message;
+      message.append("Texts:\n");
+      List<EntityAnnotation> texts = response.getResponses().get(0).getTextAnnotations();
+      if (texts != null) {
+        for (EntityAnnotation text : texts) {
+          message.append(String.format(Locale.getDefault(), "%s: %s",
+                text.getLocale(), text.getDescription()));
+          message.append("\n");
+        }
+      } else {
+        message.append("nothing\n");
+      }
+
+      message.append("Logos:\n");
+      List<EntityAnnotation> landmarks = response.getResponses().get(0).getLogoAnnotations();
+      if (landmarks != null) {
+        for (EntityAnnotation landmark : landmarks) {
+          message.append(String.format(Locale.getDefault(), "%.3f: %s",
+                landmark.getScore(), landmark.getDescription()));
+          message.append("\n");
+        }
+      } else {
+        message.append("nothing\n");
+      }
+
+      return message.toString();
     }
 }
