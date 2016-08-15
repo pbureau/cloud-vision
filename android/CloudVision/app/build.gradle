@@ -29,5 +29,7 @@ dependencies {
     compile 'com.google.http-client:google-http-client-gson:1.20.0' exclude module: 'httpclient'
 
     compile 'com.squareup.retrofit2:retrofit:2.1.0'
+    compile 'com.squareup.retrofit2:converter-gson:2.0.0-beta4'
+    compile 'com.squareup.retrofit2:converter-scalars:2.1.0'
     compile 'com.google.apis:google-api-services-vision:v1-rev2-1.21.0'
 }
