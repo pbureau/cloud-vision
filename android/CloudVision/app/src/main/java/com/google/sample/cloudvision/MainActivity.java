@@ -19,6 +19,7 @@ package com.google.sample.cloudvision;
 import android.Manifest;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.AsyncTask;
@@ -29,6 +30,8 @@ import android.support.design.widget.FloatingActionButton;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.support.v4.app.ActivityCompat;
+
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
@@ -55,10 +58,15 @@ import com.google.api.services.vision.v1.model.Image;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.FileOutputStream;
+import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
 /* Retrofit */
 import retrofit2.Call;
 import retrofit2.Converter;
@@ -75,9 +83,11 @@ import okhttp3.OkHttpClient.Builder;
 import okhttp3.ResponseBody;
 import okhttp3.RequestBody;
 import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 
 import com.google.sample.cloudvision.rest.ApiTmdb;
 import com.google.sample.cloudvision.rest.ApiCamFind;
+import com.google.sample.cloudvision.model.CamFindImageResponse;
 import com.google.sample.cloudvision.model.MovieResponse;
 import com.google.sample.cloudvision.model.Movie;
 
@@ -94,9 +104,17 @@ public class MainActivity extends AppCompatActivity
   public static final int CAMERA_PERMISSIONS_REQUEST = 2;
   public static final int CAMERA_IMAGE_REQUEST = 3;
 
+  /* Storage Permissions */
+  private static final int REQUEST_EXTERNAL_STORAGE = 1;
+  private static String[] PERMISSIONS_STORAGE = {
+    Manifest.permission.READ_EXTERNAL_STORAGE,
+    Manifest.permission.WRITE_EXTERNAL_STORAGE
+  };
+
   private TextView mImageDetails;
   private ImageView mMainImage;
   private ApiCamFind apiCamFind;
+  private String mCurrentPhotoPath;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -130,6 +148,15 @@ public class MainActivity extends AppCompatActivity
 
     mImageDetails = (TextView) findViewById(R.id.image_details);
     mMainImage = (ImageView) findViewById(R.id.main_image);
+
+    /* Check storage permission */
+    int permission = ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
+
+    /* if we don't have permission so prompt the user */
+    if (permission != PackageManager.PERMISSION_GRANTED) 
+      ActivityCompat.requestPermissions(this, PERMISSIONS_STORAGE, REQUEST_EXTERNAL_STORAGE);
+
+    /*FIXME: Use onRequestPermissionsResult() to check the authorisation prompt result */
 
     /* Camfind API init */
     final String BASE_URL = "http://api.cloudsightapi.com/";
@@ -294,53 +321,86 @@ public class MainActivity extends AppCompatActivity
           annotateRequest.setDisableGZipContent(true);
           Log.d(TAG, "created Cloud Vision request object, sending request");
 
+          /* Write bitmap to tmp file */
+          //String timeStamp     = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+          //String imageFileName = "JPEG_" + timeStamp + "_";
+          String imageFileName = "foodreco_tmp";
+          File storageDir      = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+          if(!storageDir.exists()) 
+          {
+            /* Try to create the storage dir */
+            if(!storageDir.mkdirs()) 
+              throw new IOException("No storage directory and mkdirs failed");
+          }
+          File image       = File.createTempFile(imageFileName, ".jpg", storageDir);
+          String photoPath = image.getAbsolutePath();
+
+          try {
+            FileOutputStream fos = new FileOutputStream(image);
+            bitmap.compress(CompressFormat.JPEG, 90, fos);
+            fos.close();
+          } catch (FileNotFoundException e) {
+            Log.d(TAG, "File not found: " + e.getMessage());
+          } catch (IOException e) {
+            Log.d(TAG, "Error accessing file: " + e.getMessage());
+          }
+
+
+          /* Request cloudsight API */
+
           //MediaType MEDIA_TYPE_JPEG = MediaType.parse("image/*");
           MediaType MEDIA_TYPE_JPEG = MediaType.parse("image/jpeg");
 
-          //RequestBody imageBody = RequestBody.create(MEDIA_TYPE_JPEG, getEncodedImageBytesFromBitmap(bitmap));
-
-          /*
-             String[] proj = { MediaStore.Images.Media.DATA };
-             Cursor cursor = getContentResolver().query(uri, proj, null, null, null);
-             int columnIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
-             cursor.moveToFirst();
-             String filePath = cursor.getString(columnIndex);
-             cursor.close();
-           */
+          String filePath = "";
           String[] filePathColumn = { MediaStore.Images.Media.DATA };
           Cursor cursor = getContentResolver().query(uri,filePathColumn, null, null, null);
-          cursor.moveToFirst();
-          //int columnIndex = cursor.getColumnIndex(filePathColumn[0]);
-          int columnIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
-          String filePath = cursor.getString(columnIndex);
-          cursor.close();
-           filePathUri = Uri.parse(cursor.getString(column_index));
-           fileName = filePathUri.getLastPathSegment().toString();
+          if(cursor != null)
+          {
+            cursor.moveToFirst();
+            //int columnIndex = cursor.getColumnIndex(filePathColumn[0]);
+            int columnIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+            filePath = cursor.getString(columnIndex);
+            cursor.close();
+          }
 
-          Log.d(TAG, String.format("Call uri: %s filepath: %s", uri, filePath));
-          /*
-          File file = new File(filePath);
-          RequestBody imageBody = RequestBody.create(MEDIA_TYPE_JPEG, file);
+          Log.d(TAG, String.format("Call uri: %s uri path: %s filepath: %s", uri, uri.getPath(), filePath));
 
+          //File file = new File(uri.getPath());
+          //File file = new File(filePath);
+          //File file = new File(uri.getAbsolutePath());
+          
+          //RequestBody imageBody = RequestBody.create(MEDIA_TYPE_JPEG, getEncodedImageBytesFromBitmap(bitmap));
+          //RequestBody imageBody = RequestBody.create(MEDIA_TYPE_JPEG, file);
+          MultipartBody.Part imageBody = MultipartBody.Part.createFormData("image_request[image]", image.getName(), RequestBody.create(MEDIA_TYPE_JPEG, image));  
+
+          /* FIXME: Set retry and delay for retrofit!!! */
+          //public static final int MAX_RETRY_COUNT = 50;
+          //public static final int RETRY_DELAY_SECONDS = 3;
+          
           try {
             Log.d(TAG, "Call camfind api");
-            Call<ResponseBody> call = apiCamFind.imageRequest(imageBody, "en-US");
+            Call<CamFindImageResponse> call = apiCamFind.imageRequest(imageBody, "en-US");
             Log.d(TAG, "call body: " + call.request().toString());
             Log.d(TAG, "call type: " + call.request().body().contentType().toString());
             Log.d(TAG, "call size: " + call.request().body().contentLength());
-            call.enqueue(new Callback<ResponseBody>() {
+            call.enqueue(new Callback<CamFindImageResponse>() {
               @Override
-              public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) 
+              public void onResponse(Call<CamFindImageResponse> call, Response<CamFindImageResponse> response) 
               {
                 //List<Movie> movies = response.body().getResults();
                 Log.d(TAG, "Cloudvision request ok code: " + response.code());
                 if(response.isSuccessful())
                 {
-                  try {
-                    mImageDetails.setText("Couldvision request ok: " + response.body().string());
-                  } catch(IOException e) {
-                    Log.d(TAG, "Exception reading body");
-                  }
+                  StringBuilder message = new StringBuilder("Couldvision request ok:\n\n");
+                  message.append("url: " + response.body().url + "\n");
+                  message.append("token: " + response.body().token + "\n");
+                  message.append("ttl: " + response.body().ttl + "\n");
+                  message.append("status: " + response.body().status + "\n");
+                  mImageDetails.setText(message.toString());
+
+                  /* Call the 2nd stage */
+                  Call<ResponseBody> call2 = apiCamFind.checkResponse(response.body().token);
+                  call2.enqueue(new CallbackCheckResponse());
                 }
                 else
                 {
@@ -353,7 +413,7 @@ public class MainActivity extends AppCompatActivity
               }
 
               @Override
-              public void onFailure(Call<ResponseBody> call, Throwable t) 
+              public void onFailure(Call<CamFindImageResponse> call, Throwable t) 
               {
                 // Log error here since request failed
                 Log.e(TAG, t.toString());
@@ -361,9 +421,8 @@ public class MainActivity extends AppCompatActivity
               }
             });
           } catch(Exception e) {
-            Log.d(TAG, "Exception in call CamFind");
+            Log.d(TAG, "Exception in call CamFind " + e);
           }
-          */
 
           /* Call Google cloud vision */
           BatchAnnotateImagesResponse response = annotateRequest.execute();
@@ -387,6 +446,41 @@ public class MainActivity extends AppCompatActivity
     }.execute();
   }
 
+  /***********************************************************************************/
+  private class CallbackCheckResponse implements Callback<ResponseBody>
+  {
+    @Override
+    public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) 
+    {
+      Log.d(TAG, "Cloudvision 2nd request ok code: " + response.code());
+      if(response.isSuccessful())
+      {
+        try {
+          Log.d(TAG, "Cloudvision : " + response.body().string());
+        } catch(IOException e) {
+          Log.d(TAG, "Exception reading body");
+        }
+      }
+      else
+      {
+        try {
+          Log.d(TAG, "Cloudvision error: " + response.errorBody().string());
+        } catch(IOException e) {
+          Log.d(TAG, "Exception reading body");
+        }
+      }
+    }
+    @Override
+    public void onFailure(Call<ResponseBody> call, Throwable t) 
+    {
+      // Log error here since request failed
+      Log.e(TAG, t.toString());
+      mImageDetails.setText("Couldvision request error");
+    }
+  }
+  /***********************************************************************************/
+  /* Image related methods
+   */
   public Bitmap scaleBitmapDown(Bitmap bitmap, int maxDimension) {
 
     int originalWidth = bitmap.getWidth();
@@ -436,6 +530,27 @@ public class MainActivity extends AppCompatActivity
     return imgString;
   }
 
+  private File createImageFile() throws IOException 
+  {
+    String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+    String imageFileName = "JPEG_" + timeStamp + "_";
+    File storageDir = Environment.getExternalStoragePublicDirectory( Environment.DIRECTORY_PICTURES);
+
+    if (!storageDir.exists()) {
+      if (!storageDir.mkdirs()) {
+        throw new IOException("mkdirs error");
+      }
+    }
+
+    File image = File.createTempFile(imageFileName, ".jpg", storageDir);
+
+    mCurrentPhotoPath = image.getAbsolutePath();
+    return image;
+  } 
+
+  /***********************************************************************************/
+  /* Response related methods
+   */
   private String convertResponseToString(BatchAnnotateImagesResponse response) 
   {
     StringBuilder message = new StringBuilder("Results:\n\n");

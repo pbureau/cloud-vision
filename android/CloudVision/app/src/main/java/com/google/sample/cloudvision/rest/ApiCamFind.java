@@ -12,11 +12,19 @@ import retrofit2.http.Body;
 
 import okhttp3.ResponseBody;
 import okhttp3.RequestBody;
+import okhttp3.MultipartBody;
+
+import com.google.sample.cloudvision.model.CamFindImageResponse;
 
 public interface ApiCamFind
 {
     @Multipart
     @Headers("Authorization: CloudSight YI6BzUypWikJanYbMWUt3w")
     @POST("image_requests")
-    Call<ResponseBody> imageRequest(@Part("image_request[image]") RequestBody image, @Part("image_request[locale]") String locale);
+    //Call<ResponseBody> imageRequest(@Part("image_request[image]") RequestBody image, @Part("image_request[locale]") String locale);
+    Call<CamFindImageResponse> imageRequest(@Part() MultipartBody.Part photo, @Part("image_request[locale]") String locale);
+
+    @Headers("Authorization: CloudSight YI6BzUypWikJanYbMWUt3w")
+    @GET("/image_responses/{token}")
+    Call<ResponseBody> checkResponse(@Path("token") String token);
 }
