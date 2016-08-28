@@ -66,6 +66,12 @@ import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.nio.ByteBuffer;
+
+/* Thread pool for delayed tasks */
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.lang.Runnable;
 
 /* Retrofit */
 import retrofit2.Call;
@@ -82,14 +88,19 @@ import okhttp3.OkHttpClient;
 import okhttp3.OkHttpClient.Builder;
 import okhttp3.ResponseBody;
 import okhttp3.RequestBody;
+import okhttp3.Request;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 
+import okio.BufferedSink;
+
 import com.google.sample.cloudvision.rest.ApiTmdb;
 import com.google.sample.cloudvision.rest.ApiCamFind;
+import com.google.sample.cloudvision.rest.ApiGoogleVision;
 import com.google.sample.cloudvision.model.CamFindImageResponse;
 import com.google.sample.cloudvision.model.MovieResponse;
 import com.google.sample.cloudvision.model.Movie;
+import com.google.sample.cloudvision.model.GoogleVisionRequest;
 
 public class MainActivity extends AppCompatActivity 
 {
@@ -104,6 +115,9 @@ public class MainActivity extends AppCompatActivity
   public static final int CAMERA_PERMISSIONS_REQUEST = 2;
   public static final int CAMERA_IMAGE_REQUEST = 3;
 
+  /* Cloudsigth status */
+  private static final String CAMFIND_COMPLETED = "completed";
+  private static final String CAMFIND_NOT_COMPLETED = "not completed";
   /* Storage Permissions */
   private static final int REQUEST_EXTERNAL_STORAGE = 1;
   private static String[] PERMISSIONS_STORAGE = {
@@ -114,7 +128,12 @@ public class MainActivity extends AppCompatActivity
   private TextView mImageDetails;
   private ImageView mMainImage;
   private ApiCamFind apiCamFind;
+  private ApiGoogleVision apiGoogleVision;
   private String mCurrentPhotoPath;
+
+  /* Thread pool for the center task in views */
+  private static final int MAX_CONCURENT_THREAD = 2;
+  private ScheduledThreadPoolExecutor stpe;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -195,6 +214,41 @@ public class MainActivity extends AppCompatActivity
        }
        });
      */
+
+    /* Google Vision API init */
+    final String GOOGLE_VISION_BASE_URL = "https://vision.googleapis.com/v1/";
+
+    OkHttpClient httpClientGoogle = new OkHttpClient.Builder()
+      .readTimeout(350, TimeUnit.SECONDS)
+      .connectTimeout(350, TimeUnit.SECONDS)
+      .build();
+
+    Retrofit retrofitGoogle = new Retrofit.Builder()
+      .baseUrl(GOOGLE_VISION_BASE_URL)
+      .client(httpClientGoogle)
+      .addConverterFactory(ScalarsConverterFactory.create())
+      .addConverterFactory(GsonConverterFactory.create())
+      .build();
+
+    apiGoogleVision = retrofitGoogle.create(ApiGoogleVision.class);
+
+    GoogleVisionRequest req = new GoogleVisionRequest("test");
+    Call<ResponseBody> gcall = apiGoogleVision.imageAnnotate(req);
+    try 
+    {
+      Log.d(TAG, "call body: " + gcall.request().toString());
+      Log.d(TAG, "call body: " + gcall.request().body().toString());
+      Log.d(TAG, "call type: " + gcall.request().body().contentType().toString());
+      Log.d(TAG, "call size: " + gcall.request().body().contentLength());
+    }
+    catch (IOException e) 
+    {
+      Log.d(TAG, "failed to make API request because of other IOException " +
+          e.getMessage());
+    }
+
+    /* Create a new Thread pool */
+    stpe = new ScheduledThreadPoolExecutor(MAX_CONCURENT_THREAD);
   }
 
   public void startGalleryChooser() {
@@ -239,16 +293,14 @@ public class MainActivity extends AppCompatActivity
   }
 
   @Override
-  public void onRequestPermissionsResult(
-      int requestCode, String[] permissions, int[] grantResults) {
+  public void onRequestPermissionsResult( int requestCode, String[] permissions, int[] grantResults) 
+  {
     super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-    if (PermissionUtils.permissionGranted(
-          requestCode,
-          CAMERA_PERMISSIONS_REQUEST,
-          grantResults)) {
+    if (PermissionUtils.permissionGranted( requestCode, CAMERA_PERMISSIONS_REQUEST, grantResults))
+    {
       startCamera();
-          }
-      }
+    }
+  }
 
   public void uploadImage(Uri uri) {
     if (uri != null) {
@@ -399,8 +451,7 @@ public class MainActivity extends AppCompatActivity
                   mImageDetails.setText(message.toString());
 
                   /* Call the 2nd stage */
-                  Call<ResponseBody> call2 = apiCamFind.checkResponse(response.body().token);
-                  call2.enqueue(new CallbackCheckResponse());
+                  stpe.schedule(new taskCamFindPollResult(response.body().token), 3, TimeUnit.SECONDS);
                 }
                 else
                 {
@@ -447,18 +498,50 @@ public class MainActivity extends AppCompatActivity
   }
 
   /***********************************************************************************/
-  private class CallbackCheckResponse implements Callback<ResponseBody>
+  /* Poll Cloudsight API for a recognition result
+   */
+  private class taskCamFindPollResult implements Runnable
+  {
+    private String token;
+
+    public taskCamFindPollResult(String token)
+    {
+      super();
+      this.token = token;
+    }
+    public void run()
+    {
+      Call<CamFindImageResponse> call = apiCamFind.checkResponse(token);
+      call.enqueue(new CallbackCheckResponse());
+    }
+  };
+  /***********************************************************************************/
+  private class CallbackCheckResponse implements Callback<CamFindImageResponse>
   {
     @Override
-    public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) 
+    public void onResponse(Call<CamFindImageResponse> call, Response<CamFindImageResponse> response) 
     {
       Log.d(TAG, "Cloudvision 2nd request ok code: " + response.code());
       if(response.isSuccessful())
       {
-        try {
-          Log.d(TAG, "Cloudvision : " + response.body().string());
-        } catch(IOException e) {
-          Log.d(TAG, "Exception reading body");
+        /* Continue polling until recognition is complete */
+        if(response.body().status.equals(CAMFIND_NOT_COMPLETED))
+        {
+          stpe.schedule(new taskCamFindPollResult(response.body().token), 1, TimeUnit.SECONDS);
+        }
+        else if(response.body().status.equals(CAMFIND_COMPLETED))
+        {
+          StringBuilder message = new StringBuilder("Couldvision 2nd request ok:\n\n");
+          message.append("url: " + response.body().url + "\n");
+          message.append("token: " + response.body().token + "\n");
+          message.append("ttl: " + response.body().ttl + "\n");
+          message.append("status: " + response.body().status + "\n");
+          message.append("name: " + response.body().name+ "\n");
+          mImageDetails.setText(message.toString());
+        }
+        else
+        {
+          mImageDetails.setText("Camfind request failed - image is not recognized");
         }
       }
       else
@@ -471,7 +554,7 @@ public class MainActivity extends AppCompatActivity
       }
     }
     @Override
-    public void onFailure(Call<ResponseBody> call, Throwable t) 
+    public void onFailure(Call<CamFindImageResponse> call, Throwable t) 
     {
       // Log error here since request failed
       Log.e(TAG, t.toString());
@@ -549,6 +632,23 @@ public class MainActivity extends AppCompatActivity
   } 
 
   /***********************************************************************************/
+  /* FIXME: Keep this in a debug utility class
+   */
+  private String bodyToString(final Request request)
+  {
+        try 
+        {
+          final Request copy = request.newBuilder().build();
+          final BufferedSink buffer = new BufferedSink();
+          copy.body().writeTo(buffer);
+          return buffer.readUtf8();
+        } 
+        catch (final IOException e) 
+        {
+          return "did not work";
+        }
+  }
+  /***********************************************************************************/
   /* Response related methods
    */
   private String convertResponseToString(BatchAnnotateImagesResponse response) 
@@ -594,4 +694,4 @@ public class MainActivity extends AppCompatActivity
 
     return message.toString();
   }
-
+}

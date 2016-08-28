@@ -26,5 +26,5 @@ public interface ApiCamFind
 
     @Headers("Authorization: CloudSight YI6BzUypWikJanYbMWUt3w")
     @GET("/image_responses/{token}")
-    Call<ResponseBody> checkResponse(@Path("token") String token);
+    Call<CamFindImageResponse> checkResponse(@Path("token") String token);
 }

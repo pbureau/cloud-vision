@@ -6,4 +6,5 @@ public class CamFindImageResponse
   public String token;
   public float ttl;
   public String status;
+  public String name;
 }
