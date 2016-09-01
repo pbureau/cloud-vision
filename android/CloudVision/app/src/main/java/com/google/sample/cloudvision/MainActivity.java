@@ -93,6 +93,7 @@ import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 
 import okio.BufferedSink;
+import okio.Buffer;
 
 import com.google.sample.cloudvision.rest.ApiTmdb;
 import com.google.sample.cloudvision.rest.ApiCamFind;
@@ -232,12 +233,15 @@ public class MainActivity extends AppCompatActivity
 
     apiGoogleVision = retrofitGoogle.create(ApiGoogleVision.class);
 
-    GoogleVisionRequest req = new GoogleVisionRequest("test");
-    Call<ResponseBody> gcall = apiGoogleVision.imageAnnotate(req);
+    GoogleVisionRequest req = new GoogleVisionRequest("testimagedelamort", "");
+    req.addFeature("LABEL_DETECTION", 10);
+    req.addFeature("LOGO_DETECTION", 20);
+    req.addRequest("bla", "blo");
+    Call<ResponseBody> gcall = apiGoogleVision.imageAnnotate(req, CLOUD_VISION_API_KEY);
     try 
     {
       Log.d(TAG, "call body: " + gcall.request().toString());
-      Log.d(TAG, "call body: " + gcall.request().body().toString());
+      Log.d(TAG, "call body: " + bodyToString(gcall.request()));
       Log.d(TAG, "call type: " + gcall.request().body().contentType().toString());
       Log.d(TAG, "call size: " + gcall.request().body().contentLength());
     }
@@ -373,6 +377,58 @@ public class MainActivity extends AppCompatActivity
           annotateRequest.setDisableGZipContent(true);
           Log.d(TAG, "created Cloud Vision request object, sending request");
 
+          /* Cloud vision request using Retrofit */
+          GoogleVisionRequest req = new GoogleVisionRequest(getBase64StringEncodedJpeg(bitmap), "");
+          req.addFeature("LABEL_DETECTION", 10);
+          req.addFeature("LOGO_DETECTION", 20);
+          Call<ResponseBody> gcall = apiGoogleVision.imageAnnotate(req, CLOUD_VISION_API_KEY);
+          try 
+          {
+            Log.d(TAG, "call body: " + gcall.request().toString());
+            Log.d(TAG, "call body: " + bodyToString(gcall.request()));
+            Log.d(TAG, "call type: " + gcall.request().body().contentType().toString());
+            Log.d(TAG, "call size: " + gcall.request().body().contentLength());
+          }
+          catch (IOException e) 
+          {
+            Log.d(TAG, "failed to make API request because of other IOException " +
+                e.getMessage());
+          }
+          gcall.enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) 
+            {
+              Log.d(TAG, "Cloudvision request ok code: " + response.code());
+              if(response.isSuccessful())
+              {
+                try {
+                  //StringBuilder message = new StringBuilder("Cloud sight request ok:\n\n");
+                  //message.append("response: " + response.body().string()+ "\n");
+                  //mImageDetails.setText(message.toString());
+                  Log.d(TAG, "response :" + response.body().string());
+                } catch(IOException e) {
+                  Log.d(TAG, "Exception reading body");
+                }
+              }
+              else
+              {
+                try {
+                  Log.d(TAG, "Cloudvision error: " + response.errorBody().string());
+                } catch(IOException e) {
+                  Log.d(TAG, "Exception reading body");
+                }
+              }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) 
+            {
+              // Log error here since request failed
+              Log.e(TAG, t.toString());
+              mImageDetails.setText("Couldvision request error");
+            }
+          });
+
           /* Write bitmap to tmp file */
           //String timeStamp     = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
           //String imageFileName = "JPEG_" + timeStamp + "_";
@@ -476,8 +532,9 @@ public class MainActivity extends AppCompatActivity
           }
 
           /* Call Google cloud vision */
-          BatchAnnotateImagesResponse response = annotateRequest.execute();
-          return convertResponseToString(response);
+          //BatchAnnotateImagesResponse response = annotateRequest.execute();
+          //return convertResponseToString(response);
+          return null;
         } 
         catch (GoogleJsonResponseException e) 
         {
@@ -516,6 +573,8 @@ public class MainActivity extends AppCompatActivity
     }
   };
   /***********************************************************************************/
+  /* Callback when a CheckResponse response is received
+   */
   private class CallbackCheckResponse implements Callback<CamFindImageResponse>
   {
     @Override
@@ -593,6 +652,15 @@ public class MainActivity extends AppCompatActivity
     return image;
   }
 
+  public String getBase64StringEncodedJpeg(Bitmap bitmap) {
+    Image image = new Image();
+    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream);
+    byte[] imageBytes = byteArrayOutputStream.toByteArray();
+    String imgString = com.google.api.client.util.Base64.encodeBase64URLSafeString(imageBytes);
+    return imgString;
+  }
+
   public byte[] getEncodedImageBytesFromBitmap(Bitmap bitmap) 
   {
     ByteArrayOutputStream stream = new ByteArrayOutputStream();
@@ -639,7 +707,7 @@ public class MainActivity extends AppCompatActivity
         try 
         {
           final Request copy = request.newBuilder().build();
-          final BufferedSink buffer = new BufferedSink();
+          final Buffer buffer = new Buffer();
           copy.body().writeTo(buffer);
           return buffer.readUtf8();
         } 
