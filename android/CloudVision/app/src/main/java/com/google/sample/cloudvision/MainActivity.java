@@ -49,9 +49,10 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.vision.v1.Vision;
 import com.google.api.services.vision.v1.VisionRequestInitializer;
 import com.google.api.services.vision.v1.model.AnnotateImageRequest;
+//import com.google.api.services.vision.v1.model.AnnotateImageResponse;
 import com.google.api.services.vision.v1.model.BatchAnnotateImagesRequest;
 import com.google.api.services.vision.v1.model.BatchAnnotateImagesResponse;
-import com.google.api.services.vision.v1.model.EntityAnnotation;
+//import com.google.api.services.vision.v1.model.EntityAnnotation;
 import com.google.api.services.vision.v1.model.Feature;
 import com.google.api.services.vision.v1.model.Image;
 
@@ -102,6 +103,9 @@ import com.google.sample.cloudvision.model.CamFindImageResponse;
 import com.google.sample.cloudvision.model.MovieResponse;
 import com.google.sample.cloudvision.model.Movie;
 import com.google.sample.cloudvision.model.GoogleVisionRequest;
+import com.google.sample.cloudvision.model.GoogleVisionResponse;
+import com.google.sample.cloudvision.model.AnnotateImageResponse;
+import com.google.sample.cloudvision.model.EntityAnnotation;
 
 public class MainActivity extends AppCompatActivity 
 {
@@ -135,7 +139,7 @@ public class MainActivity extends AppCompatActivity
   /* Thread pool for the center task in views */
   private static final int MAX_CONCURENT_THREAD = 2;
   private ScheduledThreadPoolExecutor stpe;
-
+  
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -237,7 +241,7 @@ public class MainActivity extends AppCompatActivity
     req.addFeature("LABEL_DETECTION", 10);
     req.addFeature("LOGO_DETECTION", 20);
     req.addRequest("bla", "blo");
-    Call<ResponseBody> gcall = apiGoogleVision.imageAnnotate(req, CLOUD_VISION_API_KEY);
+    Call<GoogleVisionResponse> gcall = apiGoogleVision.imageAnnotate(req, CLOUD_VISION_API_KEY);
     try 
     {
       Log.d(TAG, "call body: " + gcall.request().toString());
@@ -381,7 +385,8 @@ public class MainActivity extends AppCompatActivity
           GoogleVisionRequest req = new GoogleVisionRequest(getBase64StringEncodedJpeg(bitmap), "");
           req.addFeature("LABEL_DETECTION", 10);
           req.addFeature("LOGO_DETECTION", 20);
-          Call<ResponseBody> gcall = apiGoogleVision.imageAnnotate(req, CLOUD_VISION_API_KEY);
+          req.addFeature("TEXT_DETECTION", 20);
+          Call<GoogleVisionResponse> gcall = apiGoogleVision.imageAnnotate(req, CLOUD_VISION_API_KEY);
           try 
           {
             Log.d(TAG, "call body: " + gcall.request().toString());
@@ -394,20 +399,55 @@ public class MainActivity extends AppCompatActivity
             Log.d(TAG, "failed to make API request because of other IOException " +
                 e.getMessage());
           }
-          gcall.enqueue(new Callback<ResponseBody>() {
+          gcall.enqueue(new Callback<GoogleVisionResponse>() {
             @Override
-            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) 
+            public void onResponse(Call<GoogleVisionResponse> call, Response<GoogleVisionResponse> response) 
             {
               Log.d(TAG, "Cloudvision request ok code: " + response.code());
               if(response.isSuccessful())
               {
+                //StringBuilder message = new StringBuilder("Cloud sight request ok:\n\n");
+                //message.append("response: " + response.body().string()+ "\n");
+                //mImageDetails.setText(message.toString());
+
+                /*
                 try {
-                  //StringBuilder message = new StringBuilder("Cloud sight request ok:\n\n");
-                  //message.append("response: " + response.body().string()+ "\n");
-                  //mImageDetails.setText(message.toString());
-                  Log.d(TAG, "response :" + response.body().string());
+                  Log.d(TAG, "Try reading body: " + response.body().string());
                 } catch(IOException e) {
                   Log.d(TAG, "Exception reading body");
+                }
+                */
+
+                Log.d(TAG, "Try reading body: " + response.body().toString());
+                for(AnnotateImageResponse gresponse : response.body().getResponses())
+                {
+                  
+                  List<EntityAnnotation> texts = gresponse.getTexts();
+                  for(EntityAnnotation item : texts)
+                  {
+                    Log.d(TAG, "text:" + item.description);
+                    Log.d(TAG, "score:" + item.score);
+                    Log.d(TAG, "relevance:" + item.topicality);
+                    Log.d(TAG, "confidence:" + item.confidence);
+                  }
+
+                  List<EntityAnnotation> logos = gresponse.getLogos();
+                  for(EntityAnnotation item : logos)
+                  {
+                    Log.d(TAG, "logo:" + item.description);
+                    Log.d(TAG, "score:" + item.score);
+                    Log.d(TAG, "relevance:" + item.topicality);
+                    Log.d(TAG, "confidence:" + item.confidence);
+                  }
+
+                  List<EntityAnnotation> labels = gresponse.getLabels();
+                  for(EntityAnnotation item : labels)
+                  {
+                    Log.d(TAG, "label:" + item.description);
+                    Log.d(TAG, "score:" + item.score);
+                    Log.d(TAG, "relevance:" + item.topicality);
+                    Log.d(TAG, "confidence:" + item.confidence);
+                  }
                 }
               }
               else
@@ -421,7 +461,7 @@ public class MainActivity extends AppCompatActivity
             }
 
             @Override
-            public void onFailure(Call<ResponseBody> call, Throwable t) 
+            public void onFailure(Call<GoogleVisionResponse> call, Throwable t) 
             {
               // Log error here since request failed
               Log.e(TAG, t.toString());
@@ -432,7 +472,7 @@ public class MainActivity extends AppCompatActivity
           /* Write bitmap to tmp file */
           //String timeStamp     = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
           //String imageFileName = "JPEG_" + timeStamp + "_";
-          String imageFileName = "foodreco_tmp";
+          String imageFileName = "foodreco_tmp_";
           File storageDir      = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
           if(!storageDir.exists()) 
           {
@@ -485,6 +525,8 @@ public class MainActivity extends AppCompatActivity
           //public static final int MAX_RETRY_COUNT = 50;
           //public static final int RETRY_DELAY_SECONDS = 3;
           
+if(false)
+{
           try {
             Log.d(TAG, "Call camfind api");
             Call<CamFindImageResponse> call = apiCamFind.imageRequest(imageBody, "en-US");
@@ -530,6 +572,7 @@ public class MainActivity extends AppCompatActivity
           } catch(Exception e) {
             Log.d(TAG, "Exception in call CamFind " + e);
           }
+}
 
           /* Call Google cloud vision */
           //BatchAnnotateImagesResponse response = annotateRequest.execute();
@@ -721,6 +764,7 @@ public class MainActivity extends AppCompatActivity
    */
   private String convertResponseToString(BatchAnnotateImagesResponse response) 
   {
+    /*
     StringBuilder message = new StringBuilder("Results:\n\n");
 
     message.append("Labels:\n");
@@ -761,5 +805,7 @@ public class MainActivity extends AppCompatActivity
     }
 
     return message.toString();
+  */
+    return "Fonction en commentaire...";
   }
 }

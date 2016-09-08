@@ -17,9 +17,14 @@ import okhttp3.RequestBody;
 import okhttp3.MultipartBody;
 
 import com.google.sample.cloudvision.model.GoogleVisionRequest;
+import com.google.sample.cloudvision.model.GoogleVisionResponse;
+import com.google.api.services.vision.v1.model.AnnotateImageResponse;
+import com.google.api.services.vision.v1.model.BatchAnnotateImagesResponse;
+
+
 
 public interface ApiGoogleVision
 {
   @POST("./images:annotate")
-  Call<ResponseBody> imageAnnotate(@Body GoogleVisionRequest request, @Query("key")String key);
+  Call<GoogleVisionResponse> imageAnnotate(@Body GoogleVisionRequest request, @Query("key")String key);
 }
